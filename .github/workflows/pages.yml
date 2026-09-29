@@ -1,0 +1,54 @@
+name: Publish web game
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Godot 4.7.1 and web template
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/godot
+          gh release download 4.7.1-stable --repo godotengine/godot --pattern 'Godot_v4.7.1-stable_linux.x86_64.zip' --pattern 'Godot_v4.7.1-stable_export_templates.tpz' --dir /tmp/godot
+          unzip -q /tmp/godot/Godot_v4.7.1-stable_linux.x86_64.zip -d /tmp/godot
+          sudo install -m 755 /tmp/godot/Godot_v4.7.1-stable_linux.x86_64 /usr/local/bin/godot
+          unzip -q /tmp/godot/Godot_v4.7.1-stable_export_templates.tpz -d /tmp/godot/templates
+          mkdir -p ~/.local/share/godot/export_templates/4.7.1.stable
+          find /tmp/godot/templates -name web_nothreads_release.zip -exec cp {} ~/.local/share/godot/export_templates/4.7.1.stable/ \;
+
+      - name: Import and check game
+        run: |
+          godot --headless --editor --path . --import --quit
+          godot --headless --path . --script test_game.gd
+
+      - name: Export Web build
+        run: |
+          mkdir -p build/web
+          godot --headless --path . --export-release Web build/web/index.html
+          test -s build/web/index.html
+
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: build/web
+
+      - id: deploy
+        uses: actions/deploy-pages@v4
